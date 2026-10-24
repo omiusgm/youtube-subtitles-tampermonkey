@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>Проверка экспорта субтитров</title>
+<style>body{font:16px/1.6 system-ui;background:#101114;color:#eee;margin:60px;max-width:780px}button{font:inherit;padding:10px;border-radius:8px;cursor:pointer}pre{white-space:pre-wrap;color:#b8efc5}.screen{padding:32px;background:#252832;border-radius:18px;margin:24px 0}.note{color:#aaa}</style>
+<h1>Проверка экспорта субтитров</h1>
+<p class="note">Синтетические данные. Скрипт загружен из готового файла. Запросы YouTube имитируются внутри этой страницы.</p>
+<div id="movie_player" class="screen">Тестовое видео: три фрагмента на русском и английском.</div>
+<button id="navigate">Перейти на другое видео</button>
+<button id="back">Вернуть первое видео</button>
+<pre id="checks">Проверки…</pre>
+<div id="transcript"></div>
+<script>
+(async () => {
+  const target = new URL('https://www.youtube.com/watch?v=testVideo01');
+  const realFetch = window.fetch.bind(window);
+  const code = await (await realFetch('/youtube-subtitles.user.js')).text();
+  const testModule = { exports: {} };
+  Function('module', code.replace("if (typeof window === 'undefined')", 'if (true)'))(testModule);
+  const core = testModule.exports;
+  const checks = [];
+  const check = (name, condition) => { if (!condition) throw Error(name); checks.push('✓ ' + name); };
+  const oldXml = '<?xml version="1.0"?><transcript><text start="1.25" dur="2.5">Привет &amp;amp; мир&lt;br/&gt;Строка</text></transcript>';
+  const old = core.parseCaptions(oldXml, DOMParser);
+  check('XML: кириллица, миллисекунды и сущности', old[0]?.start === 1250 && old[0]?.end === 3750 && old[0]?.text === 'Привет & мир\nСтрока');
+  const srv3 = '<timedtext><body><p t="100" d="1500"><s>Один </s><s>два</s><br/>Три</p></body></timedtext>';
+  check('XML SRV3: слова и переносы строк', core.parseCaptions(srv3, DOMParser)[0]?.text === 'Один два\nТри');
+  check('HTML-ошибка не принимается за субтитры', core.parseCaptions('<html><body>Ошибка</body></html>', DOMParser).length === 0);
+  check('Повреждённый XML не принимается', core.parseCaptions('<transcript><text>', DOMParser).length === 0);
+
+  const captions = (english = false) => ({ events: [
+    { tStartMs: 0, dDurationMs: 2200, segs: [{ utf8: english ? 'Hello, world!' : 'Привет, мир!' }] },
+    { tStartMs: 2400, dDurationMs: 2600, segs: [{ utf8: english ? 'These are automatic captions.' : 'Это проверка скачивания субтитров.' }] },
+    { tStartMs: 5200, dDurationMs: 2800, segs: [{ utf8: english ? 'Text and timestamps are preserved.' : 'Текст и таймкоды сохраняются.' }] },
+  ] });
+  const player = document.getElementById('movie_player');
+  let currentTrack = {};
+  let enabledAutomatic = false;
+  const makeResponse = () => ({ videoDetails: { videoId: target.searchParams.get('v'), title: target.searchParams.get('v') === 'testVideo01' ? 'Тестовое видео — субтитры' : 'Второе видео без субтитров' }, captions: { playerCaptionsTracklistRenderer: { captionTracks: target.searchParams.get('v') === 'testVideo01' ? [
+    { languageCode: 'ru', name: { simpleText: 'Русский' }, baseUrl: 'https://www.youtube.com/api/timedtext?v=testVideo01&lang=ru' },
+    { languageCode: 'en', kind: 'asr', vssId: 'a.en', name: { simpleText: 'English' }, baseUrl: 'https://www.youtube.com/api/timedtext?v=testVideo01&lang=en&kind=asr' },
+    { languageCode: 'ru', name: { simpleText: 'Русский — медленный ответ (тест перехода)' }, baseUrl: 'https://www.youtube.com/api/timedtext?v=testVideo01&lang=ru&name=slow' },
+  ] : [] } } });
+  player.getPlayerResponse = makeResponse;
+  player.getOption = () => currentTrack;
+  player.loadModule = () => {};
+  player.setOption = (module, option, track) => {
+    currentTrack = track;
+    if (track.languageCode === 'en') {
+      enabledAutomatic = true;
+      window.fetch('https://www.youtube.com/api/timedtext?v=testVideo01&lang=en&kind=asr&pot=fixture&fmt=json3');
+    } else if (enabledAutomatic && !track.languageCode) {
+      check('После получения автосубтитров восстановлены настройки плеера', true);
+      document.getElementById('checks').textContent = checks.join('\n');
+      enabledAutomatic = false;
+    }
+  };
+  const transcript = document.createElement('ytd-transcript-renderer');
+  transcript.data = { transcriptSegmentListRenderer: { initialSegments: [
+    { transcriptSegmentRenderer: { startMs: '0', endMs: '2200', snippet: { simpleText: 'Старая расшифровка первого видео' } } },
+  ] }, footer: { sortFilterSubMenuRenderer: { subMenuItems: [{ title: 'Русский', selected: true }] } } };
+  document.getElementById('transcript').append(transcript);
+  window.fetch = async (input, options) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+    if (url.hostname !== 'www.youtube.com') return realFetch(input, options);
+    if (url.searchParams.get('name') === 'slow') await new Promise(resolve => setTimeout(resolve, 2500));
+    if (url.searchParams.get('lang') === 'en' && !url.searchParams.has('pot')) return new Response('');
+    return new Response(JSON.stringify(captions(url.searchParams.get('lang') === 'en')), { headers: { 'Content-Type': 'application/json' } });
+  };
+  const navigate = id => {
+    target.searchParams.set('v', id);
+    window.dispatchEvent(new Event('yt-navigate-finish'));
+  };
+  document.getElementById('navigate').onclick = () => navigate('testVideo02');
+  document.getElementById('back').onclick = () => navigate('testVideo01');
+  Function('location', code)(target);
+  check('Интерфейс запущен из готового userscript', !!document.getElementById('yt-subtitle-export-v1')?.shadowRoot);
+  document.getElementById('checks').textContent = checks.join('\n');
+})().catch(error => { document.getElementById('checks').textContent = 'FAIL: ' + error.stack; });
+</script>
+</html>
