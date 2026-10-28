@@ -78,3 +78,13 @@ python3 tests/serve.py
 ## Вид меню на тестовой странице
 
 ![Меню скрипта в Chrome на синтетическом стенде](docs/preview.png)
+
+<!-- ezh-community:start -->
+## Обратная связь и вклад в проект
+
+Часть линейки **Агент Ёж**: сделать подключение личных сервисов к AI-агенту понятным для новичка. Начинаем с чтения, расширяем права отдельно.
+
+[Каталог и быстрый старт](https://github.com/omiusgm/agent-ezh-catalog) · [Ошибка или идея](https://github.com/omiusgm/youtube-subtitles-tampermonkey/issues/new/choose) · [Как предложить PR](CONTRIBUTING.md) · [Безопасность](SECURITY.md)
+
+English: Issues and focused pull requests are welcome. See [contribution guidelines](CONTRIBUTING.md).
+<!-- ezh-community:end -->
